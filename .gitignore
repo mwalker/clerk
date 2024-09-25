@@ -1,3 +1,7 @@
+# vim
+*.swp
+
+# Ignore local images for testing
 *.JPG
 *.JPEG
 *.jpg
