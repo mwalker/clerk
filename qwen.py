@@ -10,9 +10,12 @@ import sys
 import argparse
 import os
 import time
+import json
+import re
 from pathlib import Path
 from PIL import Image
 from gradio_client import Client, handle_file
+from datetime import datetime
 
 def get_image_format(file_path):
     format_map = {
@@ -53,6 +56,68 @@ def save_response_to_file(image_path, response):
     with open(response_file, 'w', encoding='utf-8') as f:
         f.write(str(response))
     print(f"Saved API response to {response_file}")
+    return response_file
+
+def validate_json_structure(json_data):
+    required_keys = ["identifier", "date", "correspondent", "summary"]
+    
+    if not isinstance(json_data, dict):
+        return False, "JSON must be a single object"
+    
+    for key in required_keys:
+        if key not in json_data:
+            return False, f"Missing required key: {key}"
+        if not isinstance(json_data[key], str):
+            return False, f"Value for '{key}' must be a string"
+    
+    # Validate ISO8601 date
+    try:
+        datetime.fromisoformat(json_data["date"])
+    except ValueError:
+        return False, "Invalid ISO8601 date format"
+    
+    # Check 'tags' if present
+    if "tags" in json_data:
+        if not isinstance(json_data["tags"], list):
+            return False, "'tags' must be an array"
+        if not all(isinstance(tag, str) for tag in json_data["tags"]):
+            return False, "All items in 'tags' must be strings"
+    
+    return True, "JSON structure is valid"
+
+def extract_and_validate_json(response_file, image_path):
+    with open(response_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    # Look for JSON code block
+    json_match = re.search(r'```json\n(.*?)\n```', content, re.DOTALL)
+    if json_match:
+        json_str = json_match.group(1)
+        try:
+            json_data = json.loads(json_str)
+            is_valid, message = validate_json_structure(json_data)
+            
+            if is_valid:
+                print("Extracted JSON data is valid.")
+                
+                # Save JSON to file
+                json_file = image_path.with_suffix('.json')
+                with open(json_file, 'w', encoding='utf-8') as f:
+                    json.dump(json_data, f, indent=2)
+                print(f"Saved JSON data to {json_file}")
+                
+                # Print JSON to console
+                print("Validated JSON data:")
+                print(json.dumps(json_data, indent=2))
+                
+                return json_data
+            else:
+                print(f"Error: {message}")
+        except json.JSONDecodeError as e:
+            print(f"Error: Extracted JSON data is not valid. {str(e)}")
+    else:
+        print("Error: No JSON code block found in the response.")
+    return None
 
 def process_image(image_path, client, max_size, prompt):
     try:
@@ -75,10 +140,12 @@ def process_image(image_path, client, max_size, prompt):
 
         print(f"Successfully processed {image_to_process}")
         print(f"API call took {elapsed_time:.3f} milliseconds")
-        print(f"API response: {result}")
 
         # Save the response to a file
-        save_response_to_file(image_path, result)
+        response_file = save_response_to_file(image_path, result)
+
+        # Extract, validate, and save JSON from the response
+        extract_and_validate_json(response_file, image_path)
 
     except Exception as e:
         print(f"Error processing {image_path}: {str(e)}")
