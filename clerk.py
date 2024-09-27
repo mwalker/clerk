@@ -147,7 +147,7 @@ def extract_and_validate_json(response, image_path):
         print("Error: No JSON code block found in the response.")
     return None
 
-def process_image(image_path, client, max_size, prompt, debug):
+def process_image(image_path, client, max_size, prompt, model, debug):
     try:
         # Resize and rotate the image if necessary and get the path of the image to process
         image_to_process = resize_rotate_and_save_image(image_path, max_size, debug)
@@ -159,7 +159,7 @@ def process_image(image_path, client, max_size, prompt, debug):
         result = client.predict(
             image=handle_file(str(image_to_process)),
             text_input=prompt,
-            model_id="Qwen/Qwen2-VL-7B-Instruct",
+            model_id=model,
             api_name="/run_example"
         )
         
@@ -188,7 +188,7 @@ def process_image(image_path, client, max_size, prompt, debug):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Process images using Qwen2-VL-7B model with optional resizing, rotation, and custom prompt.",
+        description="Process images using a specified Hugging Face space and model with optional resizing, rotation, and custom prompt.",
         epilog="Environment Variables:\n"
                "  HF_TOKEN: If set, this Hugging Face API token will be used for authentication.\n"
                "            You can set it by running 'export HF_TOKEN=your_token' before running this script.",
@@ -196,8 +196,11 @@ def main():
     )
     parser.add_argument("images", nargs="+", help="Paths to image files to process")
     parser.add_argument("--max-size", type=int, default=1280, help="Maximum size for image dimension (default: 1280)")
-    parser.add_argument("--prompt", type=str, default="Extract text", help="Prompt for the Qwen2-VL-7B model (default: 'Extract text')")
+    parser.add_argument("--prompt", type=str, default="Extract text", help="Prompt for the model (default: 'Extract text')")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+    parser.add_argument("--space", type=str, default="GanymedeNil/Qwen2-VL-7B", help="Hugging Face space to use (default: 'GanymedeNil/Qwen2-VL-7B')")
+    parser.add_argument("--duplicate-space", action="store_true", help="Use Client.duplicate() to create the client")
+    parser.add_argument("--model", type=str, default="Qwen/Qwen2-VL-7B-Instruct", help="Model to use for prediction (default: 'Qwen/Qwen2-VL-7B-Instruct')")
     
     args = parser.parse_args()
 
@@ -209,12 +212,19 @@ def main():
         print("No Hugging Face API token found in environment. Some features may be limited.")
 
     # Initialize the Gradio client with the HF token if available
-    client = Client("GanymedeNil/Qwen2-VL-7B", hf_token=hf_token)
+    if args.duplicate_space:
+        print(f"Duplicating space: {args.space}")
+        client = Client.duplicate(args.space, hf_token=hf_token)
+    else:
+        print(f"Using space: {args.space}")
+        client = Client(args.space, hf_token=hf_token)
+
+    print(f"Using model: {args.model}")
 
     for image_path in args.images:
         path = Path(image_path)
         if path.is_file():
-            process_image(path, client, args.max_size, args.prompt, args.debug)
+            process_image(path, client, args.max_size, args.prompt, args.model, args.debug)
         else:
             print(f"File not found: {image_path}")
 
