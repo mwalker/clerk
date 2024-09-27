@@ -1,9 +1,13 @@
 # vim
 *.swp
 
-# Ignore local images for testing
+# Ignore local images and their derivatives for testing
 *.JPG
 *.JPEG
 *.jpg
 *.jpeg
 *_qwen.txt
+*.json
+
+# Apple
+.DS_Store
