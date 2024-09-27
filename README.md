@@ -5,9 +5,9 @@ Process images using Qwen2-VL-7B model with optional resizing and custom prompt.
 ## Usage
 
 ```
-usage: clerk.py [-h] [--max-size MAX_SIZE] [--prompt PROMPT] [--debug] [--space SPACE] [--duplicate-space] [--model MODEL] images [images ...]
+usage: clerk.py [-h] [--max-size MAX_SIZE] [--prompt PROMPT] [--debug] [--space SPACE] [--duplicate-space] [--model MODEL] [--schema SCHEMA] images [images ...]
 
-Process images using a specified Hugging Face space and model with optional resizing, rotation, and custom prompt.
+Process images using a specified Hugging Face space and model with optional resizing, rotation, custom prompt, and JSON schema validation.
 
 positional arguments:
   images               Paths to image files to process
@@ -20,6 +20,7 @@ options:
   --space SPACE        Hugging Face space to use (default: 'GanymedeNil/Qwen2-VL-7B')
   --duplicate-space    Use Client.duplicate() to create the client
   --model MODEL        Model to use for prediction (default: 'Qwen/Qwen2-VL-7B-Instruct')
+  --schema SCHEMA      Path or URL to JSON schema for validation
 
 Environment Variables:
   HF_TOKEN: If set, this Hugging Face API token will be used for authentication.

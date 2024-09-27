@@ -4,6 +4,8 @@
 #     "gradio-client",
 #     "pillow",
 #     "xattr",
+#     "jsonschema",
+#     "requests",
 # ]         
 # ///
 
@@ -18,6 +20,8 @@ from PIL import Image
 from gradio_client import Client, handle_file
 from datetime import datetime
 import xattr
+from jsonschema import validate, ValidationError
+import requests
 
 def get_image_format(file_path):
     format_map = {
@@ -91,50 +95,44 @@ def save_response_to_file(image_path, response, debug):
         return response_file
     return None
 
-def validate_json_structure(json_data):
-    required_keys = ["identifier", "date", "correspondent", "summary"]
-    
-    if not isinstance(json_data, dict):
-        return False, "JSON must be a single object"
-    
-    for key in required_keys:
-        if key not in json_data:
-            return False, f"Missing required key: {key}"
-        if not isinstance(json_data[key], str):
-            return False, f"Value for '{key}' must be a string"
-    
-    # Validate ISO8601 date
-    try:
-        datetime.fromisoformat(json_data["date"])
-    except ValueError:
-        return False, "Invalid ISO8601 date format"
-    
-    # Check 'tags' if present
-    if "tags" in json_data:
-        if not isinstance(json_data["tags"], list):
-            return False, "'tags' must be an array"
-        if not all(isinstance(tag, str) for tag in json_data["tags"]):
-            return False, "All items in 'tags' must be strings"
-    
-    return True, "JSON structure is valid"
+def load_json_schema(schema_path):
+    if schema_path.startswith(('http://', 'https://')):
+        response = requests.get(schema_path)
+        response.raise_for_status()
+        return response.json()
+    else:
+        with open(schema_path, 'r') as f:
+            return json.load(f)
 
-def extract_and_validate_json(response, image_path):
-    # Look for JSON code block
+def validate_json_structure(json_data, schema=None):
+    if schema:
+        try:
+            validate(instance=json_data, schema=schema)
+            return True, "JSON structure is valid according to the provided schema"
+        except ValidationError as e:
+            return False, f"JSON validation error: {e.message}"
+    else:
+        # If no schema is provided, just check if it's valid JSON
+        try:
+            json.dumps(json_data)
+            return True, "JSON is valid"
+        except (TypeError, ValueError) as e:
+            return False, f"Invalid JSON: {str(e)}"
+
+def extract_and_validate_json(response, image_path, schema=None):
     json_match = re.search(r'```json\n(.*?)\n```', response, re.DOTALL)
     if json_match:
         json_str = json_match.group(1)
         try:
             json_data = json.loads(json_str)
-            is_valid, message = validate_json_structure(json_data)
+            is_valid, message = validate_json_structure(json_data, schema)
             
             if is_valid:
                 print("Extracted JSON data is valid.")
                 
-                # Save JSON as extended attribute
                 xattr.setxattr(str(image_path), "org.gunzel.clerk.transcribed#S", json.dumps(json_data).encode())
                 print(f"Saved JSON data as extended attribute on {image_path}")
                 
-                # Print JSON to console
                 print("Validated JSON data:")
                 print(json.dumps(json_data, indent=2))
                 
@@ -147,15 +145,12 @@ def extract_and_validate_json(response, image_path):
         print("Error: No JSON code block found in the response.")
     return None
 
-def process_image(image_path, client, max_size, prompt, model, debug):
+def process_image(image_path, client, max_size, prompt, model, debug, schema):
     try:
-        # Resize and rotate the image if necessary and get the path of the image to process
         image_to_process = resize_rotate_and_save_image(image_path, max_size, debug)
 
-        # Time the API call
         start_time = time.time()
         
-        # Make the API call, wrapping image_to_process with handle_file
         result = client.predict(
             image=handle_file(str(image_to_process)),
             text_input=prompt,
@@ -164,7 +159,7 @@ def process_image(image_path, client, max_size, prompt, model, debug):
         )
         
         end_time = time.time()
-        elapsed_time = (end_time - start_time) * 1000  # Convert to milliseconds
+        elapsed_time = (end_time - start_time) * 1000
 
         print(f"Successfully processed {image_to_process}")
         print(f"API call took {elapsed_time:.3f} milliseconds")
@@ -173,13 +168,10 @@ def process_image(image_path, client, max_size, prompt, model, debug):
             print("Raw API response:")
             print(result)
 
-        # Save the response to a file if in debug mode
         save_response_to_file(image_path, result, debug)
 
-        # Extract, validate, and save JSON from the response
-        extract_and_validate_json(result, image_path)
+        extract_and_validate_json(result, image_path, schema)
 
-        # Clean up temporary file if it was created
         if not debug and image_to_process != image_path:
             os.remove(image_to_process)
 
@@ -188,7 +180,7 @@ def process_image(image_path, client, max_size, prompt, model, debug):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Process images using a specified Hugging Face space and model with optional resizing, rotation, and custom prompt.",
+        description="Process images using a specified Hugging Face space and model with optional resizing, rotation, custom prompt, and JSON schema validation.",
         epilog="Environment Variables:\n"
                "  HF_TOKEN: If set, this Hugging Face API token will be used for authentication.\n"
                "            You can set it by running 'export HF_TOKEN=your_token' before running this script.",
@@ -201,17 +193,16 @@ def main():
     parser.add_argument("--space", type=str, default="GanymedeNil/Qwen2-VL-7B", help="Hugging Face space to use (default: 'GanymedeNil/Qwen2-VL-7B')")
     parser.add_argument("--duplicate-space", action="store_true", help="Use Client.duplicate() to create the client")
     parser.add_argument("--model", type=str, default="Qwen/Qwen2-VL-7B-Instruct", help="Model to use for prediction (default: 'Qwen/Qwen2-VL-7B-Instruct')")
+    parser.add_argument("--schema", type=str, help="Path or URL to JSON schema for validation")
     
     args = parser.parse_args()
 
-    # Check for HF_TOKEN in environment variables
     hf_token = os.environ.get('HF_TOKEN')
     if hf_token:
         print("Using Hugging Face API token from environment variable.")
     else:
         print("No Hugging Face API token found in environment. Some features may be limited.")
 
-    # Initialize the Gradio client with the HF token if available
     if args.duplicate_space:
         print(f"Duplicating space: {args.space}")
         client = Client.duplicate(args.space, hf_token=hf_token)
@@ -221,10 +212,19 @@ def main():
 
     print(f"Using model: {args.model}")
 
+    schema = None
+    if args.schema:
+        try:
+            schema = load_json_schema(args.schema)
+            print(f"Loaded JSON schema from: {args.schema}")
+        except Exception as e:
+            print(f"Error loading JSON schema: {str(e)}")
+            sys.exit(1)
+
     for image_path in args.images:
         path = Path(image_path)
         if path.is_file():
-            process_image(path, client, args.max_size, args.prompt, args.model, args.debug)
+            process_image(path, client, args.max_size, args.prompt, args.model, args.debug, schema)
         else:
             print(f"File not found: {image_path}")
 
