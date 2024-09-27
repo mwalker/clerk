@@ -130,11 +130,9 @@ def extract_and_validate_json(response, image_path):
             if is_valid:
                 print("Extracted JSON data is valid.")
                 
-                # Save JSON to file
-                json_file = image_path.with_suffix('.json')
-                with open(json_file, 'w', encoding='utf-8') as f:
-                    json.dump(json_data, f, indent=2)
-                print(f"Saved JSON data to {json_file}")
+                # Save JSON as extended attribute
+                xattr.setxattr(str(image_path), "org.gunzel.clerk.transcribed#S", json.dumps(json_data).encode())
+                print(f"Saved JSON data as extended attribute on {image_path}")
                 
                 # Print JSON to console
                 print("Validated JSON data:")
