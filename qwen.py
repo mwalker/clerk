@@ -38,7 +38,7 @@ def get_rotation_from_xattr(file_path):
     except (OSError, ValueError):
         return 0
 
-def resize_rotate_and_save_image(image_path, max_size):
+def resize_rotate_and_save_image(image_path, max_size, debug):
     with Image.open(image_path) as img:
         original_size = img.size
         ratio = max_size / max(original_size)
@@ -58,7 +58,7 @@ def resize_rotate_and_save_image(image_path, max_size):
             rotated = True
             print(f"Rotated {image_path} by {rotation_degrees} degrees clockwise")
 
-        if resized or rotated:
+        if (resized or rotated) and debug:
             # Create the new filename
             new_filename = image_path.stem
             if resized:
@@ -73,16 +73,23 @@ def resize_rotate_and_save_image(image_path, max_size):
             print(f"Saved modified image as {new_path}")
             
             return new_path
+        elif resized or rotated:
+            # If debug is False, return a temporary file
+            temp_file = Path(f"/tmp/{image_path.stem}_temp{image_path.suffix}")
+            img.save(temp_file)
+            return temp_file
         else:
             print(f"{image_path} does not need resizing or rotation")
             return image_path
 
-def save_response_to_file(image_path, response):
-    response_file = image_path.with_name(f"{image_path.stem}_qwen.txt")
-    with open(response_file, 'w', encoding='utf-8') as f:
-        f.write(str(response))
-    print(f"Saved API response to {response_file}")
-    return response_file
+def save_response_to_file(image_path, response, debug):
+    if debug:
+        response_file = image_path.with_name(f"{image_path.stem}_qwen.txt")
+        with open(response_file, 'w', encoding='utf-8') as f:
+            f.write(str(response))
+        print(f"Saved API response to {response_file}")
+        return response_file
+    return None
 
 def validate_json_structure(json_data):
     required_keys = ["identifier", "date", "correspondent", "summary"]
@@ -111,12 +118,9 @@ def validate_json_structure(json_data):
     
     return True, "JSON structure is valid"
 
-def extract_and_validate_json(response_file, image_path):
-    with open(response_file, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
+def extract_and_validate_json(response, image_path):
     # Look for JSON code block
-    json_match = re.search(r'```json\n(.*?)\n```', content, re.DOTALL)
+    json_match = re.search(r'```json\n(.*?)\n```', response, re.DOTALL)
     if json_match:
         json_str = json_match.group(1)
         try:
@@ -145,10 +149,10 @@ def extract_and_validate_json(response_file, image_path):
         print("Error: No JSON code block found in the response.")
     return None
 
-def process_image(image_path, client, max_size, prompt):
+def process_image(image_path, client, max_size, prompt, debug):
     try:
         # Resize and rotate the image if necessary and get the path of the image to process
-        image_to_process = resize_rotate_and_save_image(image_path, max_size)
+        image_to_process = resize_rotate_and_save_image(image_path, max_size, debug)
 
         # Time the API call
         start_time = time.time()
@@ -167,11 +171,19 @@ def process_image(image_path, client, max_size, prompt):
         print(f"Successfully processed {image_to_process}")
         print(f"API call took {elapsed_time:.3f} milliseconds")
 
-        # Save the response to a file
-        response_file = save_response_to_file(image_path, result)
+        if debug:
+            print("Raw API response:")
+            print(result)
+
+        # Save the response to a file if in debug mode
+        save_response_to_file(image_path, result, debug)
 
         # Extract, validate, and save JSON from the response
-        extract_and_validate_json(response_file, image_path)
+        extract_and_validate_json(result, image_path)
+
+        # Clean up temporary file if it was created
+        if not debug and image_to_process != image_path:
+            os.remove(image_to_process)
 
     except Exception as e:
         print(f"Error processing {image_path}: {str(e)}")
@@ -187,6 +199,7 @@ def main():
     parser.add_argument("images", nargs="+", help="Paths to image files to process")
     parser.add_argument("--max-size", type=int, default=1280, help="Maximum size for image dimension (default: 1280)")
     parser.add_argument("--prompt", type=str, default="Extract text", help="Prompt for the Qwen2-VL-7B model (default: 'Extract text')")
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     
     args = parser.parse_args()
 
@@ -198,13 +211,12 @@ def main():
         print("No Hugging Face API token found in environment. Some features may be limited.")
 
     # Initialize the Gradio client with the HF token if available
-    #client = Client("GanymedeNil/Qwen2-VL-7B", hf_token=hf_token)
-    client = Client.duplicate("GanymedeNil/Qwen2-VL-7B", hf_token=hf_token)
+    client = Client("GanymedeNil/Qwen2-VL-7B", hf_token=hf_token)
 
     for image_path in args.images:
         path = Path(image_path)
         if path.is_file():
-            process_image(path, client, args.max_size, args.prompt)
+            process_image(path, client, args.max_size, args.prompt, args.debug)
         else:
             print(f"File not found: {image_path}")
 
