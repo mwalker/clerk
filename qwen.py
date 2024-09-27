@@ -3,6 +3,7 @@
 # dependencies = [
 #     "gradio-client",
 #     "pillow",
+#     "xattr",
 # ]         
 # ///
 
@@ -16,6 +17,7 @@ from pathlib import Path
 from PIL import Image
 from gradio_client import Client, handle_file
 from datetime import datetime
+import xattr
 
 def get_image_format(file_path):
     format_map = {
@@ -29,26 +31,50 @@ def get_image_format(file_path):
     ext = file_path.suffix.lower()
     return format_map.get(ext, 'JPEG')
 
-def resize_and_save_image(image_path, max_size):
+def get_rotation_from_xattr(file_path):
+    try:
+        rotation_str = xattr.getxattr(str(file_path), "org.gunzel.spin.rotation#CS").decode()
+        return int(float(rotation_str))  # Convert string to float, then to int
+    except (OSError, ValueError):
+        return 0
+
+def resize_rotate_and_save_image(image_path, max_size):
     with Image.open(image_path) as img:
         original_size = img.size
         ratio = max_size / max(original_size)
+        resized = False
+        rotated = False
+
         if ratio < 1:  # Only resize if the image is larger than max_size
             new_size = tuple(int(dim * ratio) for dim in original_size)
             img = img.resize(new_size, Image.LANCZOS)
+            resized = True
             print(f"Resized {image_path} from {original_size} to {new_size}")
-            
-            # Create the new filename with 'resized' suffix
-            new_filename = image_path.stem + "_resized" + image_path.suffix
+
+        # Check for rotation attribute and rotate if necessary
+        rotation_degrees = get_rotation_from_xattr(image_path)
+        if rotation_degrees != 0:
+            img = img.rotate(-rotation_degrees, expand=True)  # Negative because PIL rotates counter-clockwise
+            rotated = True
+            print(f"Rotated {image_path} by {rotation_degrees} degrees clockwise")
+
+        if resized or rotated:
+            # Create the new filename
+            new_filename = image_path.stem
+            if resized:
+                new_filename += "_resized"
+            if rotated:
+                new_filename += f"_rotated{rotation_degrees}"
+            new_filename += image_path.suffix
             new_path = image_path.parent / new_filename
             
-            # Save the resized image
+            # Save the modified image
             img.save(new_path)
-            print(f"Saved resized image as {new_path}")
+            print(f"Saved modified image as {new_path}")
             
             return new_path
         else:
-            print(f"{image_path} does not need resizing")
+            print(f"{image_path} does not need resizing or rotation")
             return image_path
 
 def save_response_to_file(image_path, response):
@@ -121,8 +147,8 @@ def extract_and_validate_json(response_file, image_path):
 
 def process_image(image_path, client, max_size, prompt):
     try:
-        # Resize the image if necessary and get the path of the image to process
-        image_to_process = resize_and_save_image(image_path, max_size)
+        # Resize and rotate the image if necessary and get the path of the image to process
+        image_to_process = resize_rotate_and_save_image(image_path, max_size)
 
         # Time the API call
         start_time = time.time()
@@ -152,7 +178,7 @@ def process_image(image_path, client, max_size, prompt):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Process images using Qwen2-VL-7B model with optional resizing and custom prompt.",
+        description="Process images using Qwen2-VL-7B model with optional resizing, rotation, and custom prompt.",
         epilog="Environment Variables:\n"
                "  HF_TOKEN: If set, this Hugging Face API token will be used for authentication.\n"
                "            You can set it by running 'export HF_TOKEN=your_token' before running this script.",
@@ -172,7 +198,8 @@ def main():
         print("No Hugging Face API token found in environment. Some features may be limited.")
 
     # Initialize the Gradio client with the HF token if available
-    client = Client("GanymedeNil/Qwen2-VL-7B", hf_token=hf_token)
+    #client = Client("GanymedeNil/Qwen2-VL-7B", hf_token=hf_token)
+    client = Client.duplicate("GanymedeNil/Qwen2-VL-7B", hf_token=hf_token)
 
     for image_path in args.images:
         path = Path(image_path)
