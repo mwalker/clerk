@@ -191,7 +191,7 @@ def main():
     parser.add_argument("--prompt", type=str, default="Extract text", help="Prompt for the model (default: 'Extract text')")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--space", type=str, default="GanymedeNil/Qwen2-VL-7B", help="Hugging Face space to use (default: 'GanymedeNil/Qwen2-VL-7B')")
-    parser.add_argument("--duplicate-space", action="store_true", help="Use Client.duplicate() to create the client")
+    parser.add_argument("--duplicate-space", action="store_true", help="Use Client.duplicate() to create the client in your own space")
     parser.add_argument("--model", type=str, default="Qwen/Qwen2-VL-7B-Instruct", help="Model to use for prediction (default: 'Qwen/Qwen2-VL-7B-Instruct')")
     parser.add_argument("--schema", type=str, help="Path or URL to JSON schema for validation")
     
@@ -230,3 +230,17 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Copyright 2024 Matthew Walker
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#     http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
