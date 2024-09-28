@@ -17,7 +17,7 @@ Assumes uv is installed. See https://github.com/astral-sh/uv
 ## Usage
 
 ```
-usage: uv run clerk.py [-h] [--max-size MAX_SIZE] [--prompt PROMPT] [--debug] [--space SPACE] [--duplicate-space] [--model MODEL] [--schema SCHEMA] images [images ...]
+usage: uv run clerk.py [-h] [--max-size MAX_SIZE] [--prompt PROMPT] [--debug] [--space SPACE] [--duplicate-space] [--model MODEL] [--schema SCHEMA] [--repeat] images [images ...]
 
 Process images using a specified Hugging Face space and model with optional resizing, rotation, custom prompt, and JSON schema validation.
 
@@ -33,6 +33,7 @@ options:
   --duplicate-space    Use Client.duplicate() to create the client in your own space
   --model MODEL        Model to use for prediction (default: 'Qwen/Qwen2-VL-7B-Instruct')
   --schema SCHEMA      Path or URL to JSON schema for validation
+  --repeat             Process images even if they have already been processed
 
 Environment Variables:
   HF_TOKEN: If set, this Hugging Face API token will be used for authentication.

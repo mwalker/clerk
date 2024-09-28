@@ -145,7 +145,18 @@ def extract_and_validate_json(response, image_path, schema=None):
         print("Error: No JSON code block found in the response.")
     return None
 
-def process_image(image_path, client, max_size, prompt, model, debug, schema):
+def check_transcribed_attribute(image_path):
+    try:
+        xattr.getxattr(str(image_path), "org.gunzel.clerk.transcribed#S")
+        return True
+    except OSError:
+        return False
+
+def process_image(image_path, client, max_size, prompt, model, debug, schema, repeat):
+    if check_transcribed_attribute(image_path) and not repeat:
+        print(f"Skipping {image_path}: Already processed (use --repeat to override)")
+        return
+
     try:
         image_to_process = resize_rotate_and_save_image(image_path, max_size, debug)
 
@@ -194,7 +205,8 @@ def main():
     parser.add_argument("--duplicate-space", action="store_true", help="Use Client.duplicate() to create the client in your own space")
     parser.add_argument("--model", type=str, default="Qwen/Qwen2-VL-7B-Instruct", help="Model to use for prediction (default: 'Qwen/Qwen2-VL-7B-Instruct')")
     parser.add_argument("--schema", type=str, help="Path or URL to JSON schema for validation")
-    
+    parser.add_argument("--repeat", action="store_true", help="Process images even if they have already been processed")
+
     args = parser.parse_args()
 
     hf_token = os.environ.get('HF_TOKEN')
@@ -224,7 +236,7 @@ def main():
     for image_path in args.images:
         path = Path(image_path)
         if path.is_file():
-            process_image(path, client, args.max_size, args.prompt, args.model, args.debug, schema)
+            process_image(path, client, args.max_size, args.prompt, args.model, args.debug, schema, args.repeat)
         else:
             print(f"File not found: {image_path}")
 
