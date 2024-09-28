@@ -119,7 +119,32 @@ def validate_json_structure(json_data, schema=None):
         except (TypeError, ValueError) as e:
             return False, f"Invalid JSON: {str(e)}"
 
-def extract_and_validate_json(response, image_path, schema=None):
+def check_transcribed_attribute(image_path):
+    # Check for extended attribute
+    try:
+        xattr.getxattr(str(image_path), "org.gunzel.clerk.transcribed#S")
+        return True
+    except OSError:
+        pass
+
+    # Check for JSON file
+    json_file = image_path.with_suffix('.json')
+    if json_file.exists():
+        return True
+
+    return False
+
+def save_json_output(image_path, json_data, output_type):
+    if output_type == "xattr":
+        xattr.setxattr(str(image_path), "org.gunzel.clerk.transcribed#S", json.dumps(json_data).encode())
+        print(f"Saved JSON data as extended attribute on {image_path}")
+    elif output_type == "file":
+        json_file = image_path.with_suffix('.json')
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=2)
+        print(f"Saved JSON data to file: {json_file}")
+
+def extract_and_validate_json(response, image_path, schema, json_output):
     json_match = re.search(r'```json\n(.*?)\n```', response, re.DOTALL)
     if json_match:
         json_str = json_match.group(1)
@@ -130,8 +155,7 @@ def extract_and_validate_json(response, image_path, schema=None):
             if is_valid:
                 print("Extracted JSON data is valid.")
                 
-                xattr.setxattr(str(image_path), "org.gunzel.clerk.transcribed#S", json.dumps(json_data).encode())
-                print(f"Saved JSON data as extended attribute on {image_path}")
+                save_json_output(image_path, json_data, json_output)
                 
                 print("Validated JSON data:")
                 print(json.dumps(json_data, indent=2))
@@ -145,14 +169,7 @@ def extract_and_validate_json(response, image_path, schema=None):
         print("Error: No JSON code block found in the response.")
     return None
 
-def check_transcribed_attribute(image_path):
-    try:
-        xattr.getxattr(str(image_path), "org.gunzel.clerk.transcribed#S")
-        return True
-    except OSError:
-        return False
-
-def process_image(image_path, client, max_size, prompt, model, debug, schema, repeat):
+def process_image(image_path, client, max_size, prompt, model, debug, schema, repeat, json_output):
     if check_transcribed_attribute(image_path) and not repeat:
         print(f"Skipping {image_path}: Already processed (use --repeat to override)")
         return
@@ -181,7 +198,7 @@ def process_image(image_path, client, max_size, prompt, model, debug, schema, re
 
         save_response_to_file(image_path, result, debug)
 
-        extract_and_validate_json(result, image_path, schema)
+        extract_and_validate_json(result, image_path, schema, json_output)
 
         if not debug and image_to_process != image_path:
             os.remove(image_to_process)
@@ -206,6 +223,7 @@ def main():
     parser.add_argument("--model", type=str, default="Qwen/Qwen2-VL-7B-Instruct", help="Model to use for prediction (default: 'Qwen/Qwen2-VL-7B-Instruct')")
     parser.add_argument("--schema", type=str, help="Path or URL to JSON schema for validation")
     parser.add_argument("--repeat", action="store_true", help="Process images even if they have already been processed")
+    parser.add_argument("--json-output", type=str, choices=["xattr", "file"], default="xattr", help="Method to output JSON data (default: xattr)")
 
     args = parser.parse_args()
 
@@ -245,7 +263,7 @@ def main():
     for image_path in args.images:
         path = Path(image_path)
         if path.is_file():
-            process_image(path, client, args.max_size, args.prompt, args.model, args.debug, schema, args.repeat)
+            process_image(path, client, args.max_size, args.prompt, args.model, args.debug, schema, args.repeat, args.json_output)
         else:
             print(f"File not found: {image_path}")
 
