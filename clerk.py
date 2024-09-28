@@ -215,12 +215,21 @@ def main():
     else:
         print("No Hugging Face API token found in environment. Some features may be limited.")
 
-    if args.duplicate_space:
-        print(f"Duplicating space: {args.space}")
-        client = Client.duplicate(args.space, hf_token=hf_token)
-    else:
-        print(f"Using space: {args.space}")
-        client = Client(args.space, hf_token=hf_token)
+    try:
+        if args.duplicate_space:
+            print(f"Duplicating space: {args.space}")
+            client = Client.duplicate(args.space, hf_token=hf_token)
+        else:
+            print(f"Using space: {args.space}")
+            client = Client(args.space, hf_token=hf_token)
+    except Exception as e:
+        print(f"Error creating client: {str(e)}")
+        print("If you're using --duplicate-space, please note:")
+        print("1. The space may still be starting up. Please wait a few minutes and try again.")
+        print("2. Check the Hugging Face settings page for your space to ensure it's properly configured.")
+        print("3. Verify that your API token has the necessary permissions.")
+        print("If the issue persists, try using the space directly without --duplicate-space.")
+        sys.exit(1)
 
     print(f"Using model: {args.model}")
 
