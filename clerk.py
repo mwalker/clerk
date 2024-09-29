@@ -18,10 +18,27 @@ import re
 from pathlib import Path
 from PIL import Image
 from gradio_client import Client, handle_file
-from datetime import datetime
+from datetime import datetime, timezone
 import xattr
 from jsonschema import validate, ValidationError
 import requests
+import tomllib
+
+def get_version():
+    try:
+        script_dir = Path(__file__).resolve().parent
+        pyproject_path = script_dir / "pyproject.toml"
+
+        with open(pyproject_path, "rb") as f:
+            pyproject_data = tomllib.load(f)
+
+        return pyproject_data["project"]["version"]
+    except Exception as e:
+        print(f"Warning: Could not read version from pyproject.toml: {e}")
+        return "unknown"
+
+# Get the script version from pyproject.toml
+SCRIPT_VERSION = get_version()
 
 def get_image_format(file_path):
     format_map = {
@@ -71,11 +88,11 @@ def resize_rotate_and_save_image(image_path, max_size, debug):
                 new_filename += f"_rotated{rotation_degrees}"
             new_filename += image_path.suffix
             new_path = image_path.parent / new_filename
-            
+
             # Save the modified image
             img.save(new_path)
             print(f"Saved modified image as {new_path}")
-            
+
             return new_path
         elif resized or rotated:
             # If debug is False, return a temporary file
@@ -144,22 +161,47 @@ def save_json_output(image_path, json_data, output_type):
             json.dump(json_data, f, indent=2)
         print(f"Saved JSON data to file: {json_file}")
 
-def extract_and_validate_json(response, image_path, schema, json_output):
+def add_clerk_metadata(json_data, elapsed_time, args):
+    selected_args = {
+        "max_size": args.max_size,
+        "prompt": args.prompt,
+        "space": args.space,
+        "model": args.model,
+        "schema": args.schema,
+        "duplicate_space": args.duplicate_space,
+        "repeat": args.repeat 
+    }
+
+    clerk_metadata = {
+        "version": SCRIPT_VERSION,
+        "run_at": datetime.now(timezone.utc).isoformat(),
+        "elapsed_time_ms": round(elapsed_time),
+        "args": selected_args
+    }
+
+    json_data["_clerk"] = clerk_metadata
+    return json_data
+
+def extract_and_validate_json(response, image_path, schema, json_output, elapsed_time, args):
     json_match = re.search(r'```json\n(.*?)\n```', response, re.DOTALL)
     if json_match:
         json_str = json_match.group(1)
         try:
             json_data = json.loads(json_str)
             is_valid, message = validate_json_structure(json_data, schema)
-            
+
             if is_valid:
                 print("Extracted JSON data is valid.")
-                
-                save_json_output(image_path, json_data, json_output)
-                
+
+                # Print the validated JSON data before adding clerk metadata
                 print("Validated JSON data:")
                 print(json.dumps(json_data, indent=2))
-                
+
+                # Add clerk metadata
+                json_data = add_clerk_metadata(json_data, elapsed_time, args)
+
+                save_json_output(image_path, json_data, json_output)
+
                 return json_data
             else:
                 print(f"Error: {message}")
@@ -169,7 +211,7 @@ def extract_and_validate_json(response, image_path, schema, json_output):
         print("Error: No JSON code block found in the response.")
     return None
 
-def process_image(image_path, client, max_size, prompt, model, debug, schema, repeat, json_output):
+def process_image(image_path, client, max_size, prompt, model, debug, schema, repeat, json_output, args):
     if check_transcribed_attribute(image_path) and not repeat:
         print(f"Skipping {image_path}: Already processed (use --repeat to override)")
         return
@@ -178,14 +220,14 @@ def process_image(image_path, client, max_size, prompt, model, debug, schema, re
         image_to_process = resize_rotate_and_save_image(image_path, max_size, debug)
 
         start_time = time.time()
-        
+
         result = client.predict(
             image=handle_file(str(image_to_process)),
             text_input=prompt,
             model_id=model,
             api_name="/run_example"
         )
-        
+
         end_time = time.time()
         elapsed_time = (end_time - start_time) * 1000
 
@@ -198,7 +240,7 @@ def process_image(image_path, client, max_size, prompt, model, debug, schema, re
 
         save_response_to_file(image_path, result, debug)
 
-        extract_and_validate_json(result, image_path, schema, json_output)
+        extract_and_validate_json(result, image_path, schema, json_output, elapsed_time, args)
 
         if not debug and image_to_process != image_path:
             os.remove(image_to_process)
@@ -263,7 +305,7 @@ def main():
     for image_path in args.images:
         path = Path(image_path)
         if path.is_file():
-            process_image(path, client, args.max_size, args.prompt, args.model, args.debug, schema, args.repeat, args.json_output)
+            process_image(path, client, args.max_size, args.prompt, args.model, args.debug, schema, args.repeat, args.json_output, args)
         else:
             print(f"File not found: {image_path}")
 
